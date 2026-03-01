@@ -79,32 +79,31 @@ async function sendMessage(to, text) {
   }
 }
 
-/* =========================
-   FUNÇÃO AI - GOOGLE GEMINI (text-bison-001)
-========================= */
 async function generateAIReply(userMessage) {
   if (!GOOGLE_GEMINI_KEY) return "Modo demonstração ativo (Gemini desabilitado).";
 
   try {
-    const url = `https://generativelanguage.googleapis.com/v1beta2/models/text-bison-001:generate?key=${GOOGLE_GEMINI_KEY}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta2/models/text-bison-001:generateMessage?key=${GOOGLE_GEMINI_KEY}`;
 
     const response = await axios.post(
       url,
       {
-        input: { text: SYSTEM_PROMPT + "\n\n" + userMessage },
+        messages: [
+          { author: "system", content: [{ type: "text", text: SYSTEM_PROMPT }] },
+          { author: "user", content: [{ type: "text", text: userMessage }] }
+        ],
         temperature: 0.3,
-        maxOutputTokens: 500,
+        maxOutputTokens: 500
       },
       { headers: { "Content-Type": "application/json" } }
     );
 
-    return response.data?.candidates?.[0]?.output || "Resposta vazia.";
+    return response.data?.candidates?.[0]?.content?.[0]?.text || "Resposta vazia.";
   } catch (err) {
     console.error("❌ Erro Google Gemini:", err.response?.data || err.message);
     return "Erro ao gerar resposta clínica.";
   }
 }
-
 /* =========================
    HEALTH CHECK
 ========================= */
