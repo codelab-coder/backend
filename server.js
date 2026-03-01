@@ -10,6 +10,7 @@ app.use(express.json({ limit: "10kb" }));
 /* =========================
    CONFIGURAÇÕES
 ========================= */
+const PORT = process.env.PORT || 3000;
 
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
