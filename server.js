@@ -2,6 +2,7 @@ import axios from "axios";
 import cors from "cors";
 import dotenv from "dotenv";
 import express from "express";
+import OpenAI from "openai";
 
 dotenv.config();
 
@@ -26,7 +27,8 @@ const {
   VERIFY_TOKEN,
   WHATSAPP_TOKEN,
   PHONE_NUMBER_ID,
-  OPENAI_API_KEY
+  OPENAI_API_KEY,
+  OPENAI_MODEL
 } = process.env;
 
 /* =========================
@@ -94,8 +96,7 @@ function classifyMessage(text = "") {
   const t = text.toLowerCase();
 
   if (/mg|ml|dose|posologia|quantos/i.test(t)) return "DOSE";
-  if (/estou sentindo|tenho dor|meu filho|paciente/i.test(t))
-    return "PACIENTE";
+  if (/estou sentindo|tenho dor|meu filho|paciente/i.test(t)) return "PACIENTE";
 
   return "MEDICO";
 }
@@ -125,36 +126,27 @@ Formato:
 `;
 
 /* =========================
-   OPENAI
+   OPENAI CLIENT
+========================= */
+const openai = new OpenAI({
+  apiKey: OPENAI_API_KEY
+});
+
+/* =========================
+   FUNÇÃO AI
 ========================= */
 async function generateAIReply(userMessage) {
-  if (!OPENAI_API_KEY) {
-    return "Modo demonstração ativo (OpenAI desabilitado).";
-  }
+  if (!OPENAI_API_KEY) return "Modo demonstração ativo (OpenAI desabilitado).";
 
   try {
-    const response = await axios.post(
-      "https://api.openai.com/v1/chat/completions",
-      {
-        model: "gpt-4o-mini",
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: userMessage }
-        ],
-        temperature: 0.3
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
-          "Content-Type": "application/json"
-        },
-        timeout: 10000
-      }
-    );
+    const response = await openai.responses.create({
+      model: OPENAI_MODEL || "gpt-5-mini",
+      input: SYSTEM_PROMPT + "\n\n" + userMessage
+    });
 
-    return response.data?.choices?.[0]?.message?.content || "Resposta vazia.";
+    return response.output_text || "Resposta vazia.";
   } catch (err) {
-    console.error("❌ Erro OpenAI:", err.response?.data || err.message);
+    console.error("❌ Erro OpenAI:", err);
     return "Erro ao gerar resposta clínica.";
   }
 }
@@ -184,41 +176,27 @@ app.post("/send", async (req, res) => {
     const { number, message } = req.body;
 
     if (!number || !message?.trim()) {
-      return res.status(400).json({
-        error: "Número e mensagem são obrigatórios"
-      });
+      return res.status(400).json({ error: "Número e mensagem são obrigatórios" });
     }
 
     const type = classifyMessage(message);
 
     if (type === "PACIENTE") {
-      return res.json({
-        reply: "Canal exclusivo para profissionais de saúde."
-      });
+      return res.json({ reply: "Canal exclusivo para profissionais de saúde." });
     }
 
     if (type === "DOSE") {
-      return res.json({
-        reply:
-          "Não posso informar doses. Posso discutir classes terapêuticas."
-      });
+      return res.json({ reply: "Não posso informar doses. Posso discutir classes terapêuticas." });
     }
 
     const aiReply = truncate(await generateAIReply(message));
-
-    // teste rápido (descomente se quiser isolar problema)
-    // await sendMessage(number, "Mensagem de teste");
 
     await sendMessage(number, aiReply);
 
     res.json({ ok: true, reply: aiReply });
   } catch (err) {
     console.error("❌ Erro /send:", err.response?.data || err.message);
-
-    res.status(500).json({
-      error: "Falha ao enviar mensagem",
-      details: err.response?.data || err.message
-    });
+    res.status(500).json({ error: "Falha ao enviar mensagem", details: err.response?.data || err.message });
   }
 });
 
@@ -241,10 +219,7 @@ app.post("/webhook", async (req, res) => {
     const type = classifyMessage(text);
 
     if (type !== "MEDICO") {
-      await sendMessage(
-        from,
-        "Canal exclusivo para discussão clínica profissional."
-      );
+      await sendMessage(from, "Canal exclusivo para discussão clínica profissional.");
       return res.sendStatus(200);
     }
 
