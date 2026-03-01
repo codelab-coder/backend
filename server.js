@@ -63,6 +63,49 @@ function truncate(text, max = 3500) {
 }
 
 /* =========================
+   SEND MESSAGE (WHATSAPP)
+========================= */
+async function sendMessage(to, text) {
+  try {
+    await whatsappAPI.post("/messages", {
+      messaging_product: "whatsapp",
+      to,
+      type: "text",
+      text: { body: truncate(text) },
+    });
+  } catch (err) {
+    console.error("❌ Erro WhatsApp:", err.response?.data || err.message);
+    throw err;
+  }
+}
+
+/* =========================
+   FUNÇÃO AI - GOOGLE GEMINI (text-bison-001)
+========================= */
+async function generateAIReply(userMessage) {
+  if (!GOOGLE_GEMINI_KEY) return "Modo demonstração ativo (Gemini desabilitado).";
+
+  try {
+    const url = `https://generativelanguage.googleapis.com/v1beta2/models/text-bison-001:generate?key=${GOOGLE_GEMINI_KEY}`;
+
+    const response = await axios.post(
+      url,
+      {
+        input: { text: SYSTEM_PROMPT + "\n\n" + userMessage },
+        temperature: 0.3,
+        maxOutputTokens: 500,
+      },
+      { headers: { "Content-Type": "application/json" } }
+    );
+
+    return response.data?.candidates?.[0]?.output || "Resposta vazia.";
+  } catch (err) {
+    console.error("❌ Erro Google Gemini:", err.response?.data || err.message);
+    return "Erro ao gerar resposta clínica.";
+  }
+}
+
+/* =========================
    HEALTH CHECK
 ========================= */
 app.get("/", (_, res) => {
@@ -95,10 +138,8 @@ app.get("/webhook", (req, res) => {
 ========================= */
 function classifyMessage(text = "") {
   const t = text.toLowerCase();
-
   if (/mg|ml|dose|posologia|quantos/i.test(t)) return "DOSE";
   if (/estou sentindo|tenho dor|meu filho|paciente/i.test(t)) return "PACIENTE";
-
   return "MEDICO";
 }
 
@@ -125,41 +166,6 @@ Formato:
 4. Classes terapêuticas
 5. Orientações
 `;
-
-/* =========================
-   FUNÇÃO AI - GOOGLE GEMINI (text-bison-001)
-========================= */
-async function generateAIReply(userMessage) {
-  if (!GOOGLE_GEMINI_KEY) return "Modo demonstração ativo (Gemini desabilitado).";
-
-  try {
-    const url = `https://generativelanguage.googleapis.com/v1beta2/models/text-bison-001:generate?key=${GOOGLE_GEMINI_KEY}`;
-
-    const response = await axios.post(
-      url,
-      {
-        input: { text: SYSTEM_PROMPT + "\n\n" + userMessage },
-        temperature: 0.3,
-        maxOutputTokens: 500
-      },
-      { headers: { "Content-Type": "application/json" } }
-    );
-
-    // ✅ Aqui pegamos a resposta correta
-    const candidate = response.data?.candidates?.[0];
-    if (!candidate) return "Resposta vazia.";
-
-    // Dependendo do modelo, pode estar em candidate.output[0].content ou candidate.content
-    const contentArray = candidate.output || candidate.content;
-    if (!contentArray || !contentArray.length) return "Resposta vazia.";
-
-    return contentArray[0].text || contentArray[0].content || "Resposta vazia.";
-
-  } catch (err) {
-    console.error("❌ Erro Google Gemini:", err.response?.data || err.message);
-    return "Erro ao gerar resposta clínica.";
-  }
-}
 
 /* =========================
    ROTA PARA FRONTEND
