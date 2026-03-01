@@ -52,6 +52,14 @@ const whatsappAPI = axios.create({
 });
 
 /* =========================
+   HELPERS
+========================= */
+function truncate(text, max = 3500) {
+  if (!text) return "";
+  return text.length > max ? text.slice(0, max) + "…" : text;
+}
+
+/* =========================
    HEALTH CHECK
 ========================= */
 app.get("/", (_, res) => {
@@ -160,7 +168,7 @@ async function sendMessage(to, text) {
       messaging_product: "whatsapp",
       to,
       type: "text",
-      text: { body: text }
+      text: { body: truncate(text) }
     });
   } catch (err) {
     console.error(
@@ -178,7 +186,7 @@ app.post("/send", async (req, res) => {
   try {
     const { number, message } = req.body;
 
-    if (!number || !message) {
+    if (!number || !message?.trim()) {
       return res.status(400).json({
         error: "Número e mensagem são obrigatórios"
       });
@@ -199,12 +207,21 @@ app.post("/send", async (req, res) => {
       });
     }
 
-    const aiReply = await generateAIReply(message);
+    const aiReply = truncate(await generateAIReply(message));
+
+    // teste rápido (descomente se quiser isolar problema)
+    // await sendMessage(number, "Mensagem de teste");
+
     await sendMessage(number, aiReply);
 
     res.json({ ok: true, reply: aiReply });
   } catch (err) {
-    res.status(500).json({ error: "Falha ao enviar mensagem" });
+    console.error("❌ Erro /send:", err.response?.data || err.message);
+
+    res.status(500).json({
+      error: "Falha ao enviar mensagem",
+      details: err.response?.data || err.message
+    });
   }
 });
 
@@ -234,12 +251,15 @@ app.post("/webhook", async (req, res) => {
       return res.sendStatus(200);
     }
 
-    const reply = await generateAIReply(text);
+    const reply = truncate(await generateAIReply(text));
     await sendMessage(from, reply);
 
     res.sendStatus(200);
   } catch (err) {
-    console.error("❌ Erro webhook:", err.message);
+    console.error(
+      "❌ Erro webhook:",
+      err.response?.data || err.message
+    );
     res.sendStatus(500);
   }
 });
