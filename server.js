@@ -31,8 +31,8 @@ const {
   PHONE_NUMBER_ID,
 } = process.env;
 
-// Sua chave Gemini direto no código
-const GOOGLE_GEMINI_KEY = "SUA_CHAVE_GEMINI_AQUI";
+// Sua chave Gemini (pode usar process.env também)
+const GOOGLE_GEMINI_KEY = process.env.GOOGLE_GEMINI_KEY || "SUA_CHAVE_GEMINI_AQUI";
 
 /* =========================
    VALIDAÇÃO DE ENV
