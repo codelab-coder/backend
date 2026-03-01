@@ -11,14 +11,10 @@ app.use(express.json({ limit: "10kb" }));
    CONFIGURAÇÕES
 ========================= */
 
-const {
-  PORT = 3000,
-  VERIFY_TOKEN,
-  WHATSAPP_TOKEN,
-  PHONE_NUMBER_ID,
-  OPENAI_API_KEY
-} = process.env;
-
+const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
+const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
+const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 /* =========================
    VALIDAÇÃO DE ENV
 ========================= */
