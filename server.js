@@ -152,7 +152,7 @@ async function generateAIReply(userMessage) {
       }
     );
 
-    return response.data.choices[0].message.content;
+    return response.data?.choices?.[0]?.message?.content || "Resposta vazia.";
   } catch (err) {
     console.error("❌ Erro OpenAI:", err.response?.data || err.message);
     return "Erro ao gerar resposta clínica.";
@@ -171,10 +171,7 @@ async function sendMessage(to, text) {
       text: { body: truncate(text) }
     });
   } catch (err) {
-    console.error(
-      "❌ Erro WhatsApp:",
-      err.response?.data || err.message
-    );
+    console.error("❌ Erro WhatsApp:", err.response?.data || err.message);
     throw err;
   }
 }
@@ -256,10 +253,7 @@ app.post("/webhook", async (req, res) => {
 
     res.sendStatus(200);
   } catch (err) {
-    console.error(
-      "❌ Erro webhook:",
-      err.response?.data || err.message
-    );
+    console.error("❌ Erro webhook:", err.response?.data || err.message);
     res.sendStatus(500);
   }
 });
