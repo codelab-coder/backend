@@ -138,38 +138,26 @@ async function generateAIReply(userMessage) {
     const response = await axios.post(
       url,
       {
-        // Aqui usamos o formato correto
-        input: {
-          text: SYSTEM_PROMPT + "\n\n" + userMessage
-        },
+        input: { text: SYSTEM_PROMPT + "\n\n" + userMessage },
         temperature: 0.3,
         maxOutputTokens: 500
       },
       { headers: { "Content-Type": "application/json" } }
     );
 
-    // O retorno vem dentro de candidates[0].output
-    return response.data?.candidates?.[0]?.output || "Resposta vazia.";
+    // ✅ Aqui pegamos a resposta correta
+    const candidate = response.data?.candidates?.[0];
+    if (!candidate) return "Resposta vazia.";
+
+    // Dependendo do modelo, pode estar em candidate.output[0].content ou candidate.content
+    const contentArray = candidate.output || candidate.content;
+    if (!contentArray || !contentArray.length) return "Resposta vazia.";
+
+    return contentArray[0].text || contentArray[0].content || "Resposta vazia.";
+
   } catch (err) {
     console.error("❌ Erro Google Gemini:", err.response?.data || err.message);
     return "Erro ao gerar resposta clínica.";
-  }
-}
-
-/* =========================
-   SEND MESSAGE (WHATSAPP)
-========================= */
-async function sendMessage(to, text) {
-  try {
-    await whatsappAPI.post("/messages", {
-      messaging_product: "whatsapp",
-      to,
-      type: "text",
-      text: { body: truncate(text) },
-    });
-  } catch (err) {
-    console.error("❌ Erro WhatsApp:", err.response?.data || err.message);
-    throw err;
   }
 }
 
