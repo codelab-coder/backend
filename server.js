@@ -25,8 +25,8 @@ const PORT = process.env.PORT || 3000;
 /* =========================
    CONFIGURAÇÕES
 ========================= */
-const { VERIFY_TOKEN, WHATSAPP_TOKEN, PHONE_NUMBER_ID, GOOGLE_GEMINI_KEY } =
-  process.env;
+const { VERIFY_TOKEN, WHATSAPP_TOKEN, PHONE_NUMBER_ID } = process.env;
+const GOOGLE_GEMINI_KEY = process.env.GOOGLE_GEMINI_KEY;
 
 if (!GOOGLE_GEMINI_KEY) {
   console.warn("⚠️ GOOGLE_GEMINI_KEY não definido. Modo demonstração ativo.");
@@ -63,23 +63,6 @@ function truncate(text, max = 3500) {
 }
 
 /* =========================
-   SEND MESSAGE (WHATSAPP)
-========================= */
-async function sendMessage(to, text) {
-  try {
-    await whatsappAPI.post("/messages", {
-      messaging_product: "whatsapp",
-      to,
-      type: "text",
-      text: { body: truncate(text) },
-    });
-  } catch (err) {
-    console.error("❌ Erro WhatsApp:", err.response?.data || err.message);
-    throw err;
-  }
-}
-
-/* =========================
    PROMPT MEDICO
 ========================= */
 const SYSTEM_PROMPT = `
@@ -104,6 +87,16 @@ Formato:
 `;
 
 /* =========================
+   CLASSIFICAÇÃO DE MENSAGEM
+========================= */
+function classifyMessage(text = "") {
+  const t = text.toLowerCase();
+  if (/mg|ml|dose|posologia|quantos/i.test(t)) return "DOSE";
+  if (/estou sentindo|tenho dor|meu filho|paciente/i.test(t)) return "PACIENTE";
+  return "MEDICO";
+}
+
+/* =========================
    FUNÇÃO AI - GOOGLE GEMINI
 ========================= */
 async function generateAIReply(userMessage) {
@@ -115,20 +108,36 @@ async function generateAIReply(userMessage) {
     const response = await axios.post(
       url,
       {
-        input: {
-          text: SYSTEM_PROMPT + "\n\n" + userMessage,
-        },
+        prompt: [
+          { text: SYSTEM_PROMPT + "\n\n" + userMessage }
+        ],
         temperature: 0.3,
-        candidate_count: 1,
-        top_p: 0.95,
+        maxOutputTokens: 500
       },
       { headers: { "Content-Type": "application/json" } }
     );
 
-    return response.data?.candidates?.[0]?.output?.content || "Resposta vazia.";
+    return response.data?.candidates?.[0]?.output || "Resposta vazia.";
   } catch (err) {
     console.error("❌ Erro Google Gemini:", err.response?.data || err.message);
     return "Erro ao gerar resposta clínica.";
+  }
+}
+
+/* =========================
+   ENVIAR MENSAGEM WHATSAPP
+========================= */
+async function sendMessage(to, text) {
+  try {
+    await whatsappAPI.post("/messages", {
+      messaging_product: "whatsapp",
+      to,
+      type: "text",
+      text: { body: truncate(text) },
+    });
+  } catch (err) {
+    console.error("❌ Erro WhatsApp:", err.response?.data || err.message);
+    throw err;
   }
 }
 
@@ -144,7 +153,7 @@ app.get("/", (_, res) => {
 });
 
 /* =========================
-   WEBHOOK VERIFY (META)
+   WEBHOOK VERIFY META
 ========================= */
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
@@ -161,26 +170,14 @@ app.get("/webhook", (req, res) => {
 });
 
 /* =========================
-   GUARDAS CLINICAS
-========================= */
-function classifyMessage(text = "") {
-  const t = text.toLowerCase();
-  if (/mg|ml|dose|posologia|quantos/i.test(t)) return "DOSE";
-  if (/estou sentindo|tenho dor|meu filho|paciente/i.test(t)) return "PACIENTE";
-  return "MEDICO";
-}
-
-/* =========================
-   ROTA PARA FRONTEND
+   ROTA FRONTEND - ENVIAR MENSAGEM
 ========================= */
 app.post("/send", async (req, res) => {
   try {
     const { number, message } = req.body;
 
     if (!number || !message?.trim()) {
-      return res
-        .status(400)
-        .json({ error: "Número e mensagem são obrigatórios" });
+      return res.status(400).json({ error: "Número e mensagem são obrigatórios" });
     }
 
     const type = classifyMessage(message);
@@ -201,15 +198,12 @@ app.post("/send", async (req, res) => {
     res.json({ ok: true, reply: aiReply });
   } catch (err) {
     console.error("❌ Erro /send:", err.response?.data || err.message);
-    res.status(500).json({
-      error: "Falha ao enviar mensagem",
-      details: err.response?.data || err.message,
-    });
+    res.status(500).json({ error: "Falha ao enviar mensagem", details: err.response?.data || err.message });
   }
 });
 
 /* =========================
-   WEBHOOK RECEIVE (WHATSAPP)
+   WEBHOOK WHATSAPP
 ========================= */
 app.post("/webhook", async (req, res) => {
   try {
@@ -227,10 +221,7 @@ app.post("/webhook", async (req, res) => {
     const type = classifyMessage(text);
 
     if (type !== "MEDICO") {
-      await sendMessage(
-        from,
-        "Canal exclusivo para discussão clínica profissional."
-      );
+      await sendMessage(from, "Canal exclusivo para discussão clínica profissional.");
       return res.sendStatus(200);
     }
 
@@ -245,7 +236,7 @@ app.post("/webhook", async (req, res) => {
 });
 
 /* =========================
-   START
+   START SERVER
 ========================= */
 app.listen(PORT, () => {
   console.log(`🚀 MedHelper rodando na porta ${PORT}`);
