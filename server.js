@@ -1,119 +1,207 @@
 import axios from "axios";
-import cors from "cors";
 import dotenv from "dotenv";
 import express from "express";
 
 dotenv.config();
 
 const app = express();
-app.use(express.json());
-app.use(cors());
-
-const PORT = process.env.PORT || 3000;
-VERIFY_TOKEN=EAAT1N2TvXJ8BQ3z5F5fTkRn0GwWUtK1Tx2YmoRAefcFAlPZCQmepBVV5Pr3o0Ahjm67jbZA6iVqQFTbLWg8ZA5x3DaRl4boY5NSU7TWNCMGuLjlZAubGffaZB4HHllmZAOKJolIvzYUP7GMOsJHYULZCS6uiPGcf21FjQmpkxSup21tItMlj1o9qhgdGgDRP9CZBBDxGH2FIanjklWxZAt99iCEp6azOgXPkhHVkJTJmvptOZBZAemi8f8a1FRvfwnZAhb85RPkRxQzZAuPJOlC0G5Mkp8qMM
-WHATSAPP_TOKEN=1895972641042576
-PHONE_NUMBER_ID=1015197901676770
+app.use(express.json({ limit: "10kb" }));
 
 /* =========================
-   Rota raiz (status)
+   CONFIGURAÇÕES
 ========================= */
-app.get("/", (req, res) => {
-  res.send("MedHelper Backend Online");
+
+const {
+  PORT = 3000,
+  VERIFY_TOKEN,
+  WHATSAPP_TOKEN,
+  PHONE_NUMBER_ID,
+  OPENAI_API_KEY
+} = process.env;
+
+/* =========================
+   VALIDAÇÃO DE ENV
+========================= */
+
+function validateEnv() {
+  const required = ["VERIFY_TOKEN", "WHATSAPP_TOKEN", "PHONE_NUMBER_ID"];
+  const missing = required.filter((key) => !process.env[key]);
+
+  if (missing.length) {
+    console.error("Variáveis obrigatórias ausentes:", missing);
+    process.exit(1);
+  }
+}
+
+validateEnv();
+
+/* =========================
+   AXIOS INSTANCE SEGURA
+========================= */
+
+const whatsappAPI = axios.create({
+  baseURL: `https://graph.facebook.com/v23.0/${PHONE_NUMBER_ID}`,
+  headers: {
+    Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+    "Content-Type": "application/json"
+  },
+  timeout: 8000
 });
 
 /* =========================
-   Verificação do Webhook
+   HEALTH CHECK
 ========================= */
+
+app.get("/", (req, res) => {
+  res.status(200).json({
+    status: "online",
+    service: "MedHelper Backend",
+    uptime: process.uptime()
+  });
+});
+
+/* =========================
+   VERIFICAÇÃO DO WEBHOOK
+========================= */
+
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
 
-  if (mode && token === VERIFY_TOKEN) {
-    console.log("Webhook verificado!");
-    res.status(200).send(challenge);
-  } else {
-    res.sendStatus(403);
+  if (mode === "subscribe" && token === VERIFY_TOKEN) {
+    console.log("Webhook verificado com sucesso");
+    return res.status(200).send(challenge);
   }
+
+  return res.sendStatus(403);
 });
 
 /* =========================
-   Receber mensagens
+   RECEBER MENSAGENS
 ========================= */
+
 app.post("/webhook", async (req, res) => {
   try {
-    const body = req.body;
+    const message =
+      req.body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
 
-    if (body.object) {
-      const message =
-        body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
-
-      if (message) {
-        const from = message.from;
-        const text = message.text?.body;
-
-        console.log("Mensagem recebida:", text);
-
-        // Resposta automática simples
-        await sendMessage(from, `Você disse: ${text}`);
-      }
-
-      res.sendStatus(200);
-    } else {
-      res.sendStatus(404);
+    if (!message) {
+      return res.sendStatus(200);
     }
+
+    const from = message.from;
+    const text = message.text?.body?.trim();
+
+    if (!text) {
+      return res.sendStatus(200);
+    }
+
+    console.log(`Mensagem de ${from}: ${text}`);
+
+    const reply = await generateReply(text);
+
+    await sendMessage(from, reply);
+
+    return res.sendStatus(200);
   } catch (error) {
-    console.error("Erro:", error.response?.data || error.message);
-    res.sendStatus(500);
+    console.error("Erro no webhook:", error.message);
+    return res.sendStatus(500);
   }
 });
 
 /* =========================
-   Enviar mensagem manual
+   ENVIO MANUAL
 ========================= */
+
 app.post("/send", async (req, res) => {
   try {
     const { number, message } = req.body;
 
     if (!number || !message) {
       return res.status(400).json({
-        status: "Número e mensagem são obrigatórios."
+        error: "Número e mensagem são obrigatórios"
       });
     }
 
     await sendMessage(number, message);
 
-    res.json({
-      status: "Mensagem enviada com sucesso!"
-    });
+    return res.json({ status: "Mensagem enviada" });
   } catch (error) {
-    console.error("Erro ao enviar:", error.response?.data || error.message);
-    res.status(500).json({
-      status: "Erro ao enviar mensagem."
-    });
+    console.error("Erro ao enviar:", error.message);
+    return res.status(500).json({ error: "Falha no envio" });
   }
 });
 
 /* =========================
-   Função de envio
+   FUNÇÃO DE ENVIO
 ========================= */
+
 async function sendMessage(to, text) {
-  await axios.post(
-    `https://graph.facebook.com/v23.0/${PHONE_NUMBER_ID}/messages`,
-    {
+  try {
+    await whatsappAPI.post("/messages", {
       messaging_product: "whatsapp",
-      to: to,
+      to,
       type: "text",
       text: { body: text }
-    },
-    {
-      headers: {
-        Authorization: `Bearer ${WHATSAPP_TOKEN}`,
-        "Content-Type": "application/json"
-      }
-    }
-  );
+    });
+  } catch (error) {
+    console.error(
+      "Erro WhatsApp:",
+      error.response?.data || error.message
+    );
+    throw error;
+  }
 }
+
+/* =========================
+   INTEGRAÇÃO OPENAI (PRONTA)
+========================= */
+
+async function generateReply(userMessage) {
+  if (!OPENAI_API_KEY) {
+    return `Você disse: ${userMessage}`;
+  }
+
+  try {
+    const response = await axios.post(
+      "https://api.openai.com/v1/chat/completions",
+      {
+        model: "gpt-4o-mini",
+        messages: [
+          { role: "system", content: "Você é um assistente médico profissional e objetivo." },
+          { role: "user", content: userMessage }
+        ],
+        temperature: 0.4
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${OPENAI_API_KEY}`,
+          "Content-Type": "application/json"
+        },
+        timeout: 10000
+      }
+    );
+
+    return response.data.choices[0].message.content;
+  } catch (error) {
+    console.error("Erro OpenAI:", error.response?.data || error.message);
+    return "Desculpe, ocorreu um erro ao processar sua mensagem.";
+  }
+}
+
+/* =========================
+   ERROR HANDLER GLOBAL
+========================= */
+
+app.use((err, req, res, next) => {
+  console.error("Erro não tratado:", err);
+  res.status(500).json({ error: "Erro interno" });
+});
+
+/* =========================
+   START SERVER
+========================= */
 
 app.listen(PORT, () => {
   console.log(`Servidor rodando na porta ${PORT}`);
