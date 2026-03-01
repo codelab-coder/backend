@@ -2,7 +2,6 @@ import axios from "axios";
 import cors from "cors";
 import dotenv from "dotenv";
 import express from "express";
-import OpenAI from "openai";
 
 dotenv.config();
 
@@ -15,7 +14,7 @@ app.use(
   cors({
     origin: "*",
     methods: ["GET", "POST"],
-    allowedHeaders: ["Content-Type"]
+    allowedHeaders: ["Content-Type"],
   })
 );
 
@@ -23,16 +22,20 @@ app.use(express.json({ limit: "10kb" }));
 
 const PORT = process.env.PORT || 3000;
 
+/* =========================
+   CONFIGURAÇÕES
+========================= */
 const {
   VERIFY_TOKEN,
   WHATSAPP_TOKEN,
   PHONE_NUMBER_ID,
-  OPENAI_API_KEY,
-  OPENAI_MODEL
 } = process.env;
 
+// Sua chave Gemini direto no código
+const GOOGLE_GEMINI_KEY = "SUA_CHAVE_GEMINI_AQUI";
+
 /* =========================
-   VALIDACAO DE ENV
+   VALIDAÇÃO DE ENV
 ========================= */
 ["VERIFY_TOKEN", "WHATSAPP_TOKEN", "PHONE_NUMBER_ID"].forEach((key) => {
   if (!process.env[key]) {
@@ -48,9 +51,9 @@ const whatsappAPI = axios.create({
   baseURL: `https://graph.facebook.com/v22.0/${PHONE_NUMBER_ID}`,
   headers: {
     Authorization: `Bearer ${WHATSAPP_TOKEN}`,
-    "Content-Type": "application/json"
+    "Content-Type": "application/json",
   },
-  timeout: 10000
+  timeout: 10000,
 });
 
 /* =========================
@@ -68,7 +71,7 @@ app.get("/", (_, res) => {
   res.json({
     status: "online",
     service: "MedHelper",
-    uptime: process.uptime()
+    uptime: process.uptime(),
   });
 });
 
@@ -96,7 +99,8 @@ function classifyMessage(text = "") {
   const t = text.toLowerCase();
 
   if (/mg|ml|dose|posologia|quantos/i.test(t)) return "DOSE";
-  if (/estou sentindo|tenho dor|meu filho|paciente/i.test(t)) return "PACIENTE";
+  if (/estou sentindo|tenho dor|meu filho|paciente/i.test(t))
+    return "PACIENTE";
 
   return "MEDICO";
 }
@@ -126,39 +130,29 @@ Formato:
 `;
 
 /* =========================
-   OPENAI CLIENT
-========================= */
-const openai = new OpenAI({
-  apiKey: OPENAI_API_KEY
-});
-
-/* =========================
-   FUNÇÃO AI - VERSÃO GRÁTIS
+   FUNÇÃO AI - GOOGLE GEMINI
 ========================= */
 async function generateAIReply(userMessage) {
-  if (!OPENAI_API_KEY) return "Modo demonstração ativo (OpenAI desabilitado).";
+  if (!GOOGLE_GEMINI_KEY)
+    return "Modo demonstração ativo (Google Gemini desabilitado).";
 
   try {
-    // força uso do GPT-3.5 turbo para plano gratuito
-    const response = await openai.chat.completions.create({
-      model: OPENAI_MODEL || "gpt-3.5-turbo",
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: userMessage }
-      ],
-      temperature: 0.3,
-      max_tokens: 500
-    });
+    const url = `https://generativelanguage.googleapis.com/v1beta2/models/text-bison-001:generate?key=${GOOGLE_GEMINI_KEY}`;
 
-    return response.choices?.[0]?.message?.content || "Resposta vazia.";
+    const response = await axios.post(
+      url,
+      {
+        prompt: SYSTEM_PROMPT + "\n\n" + userMessage,
+        maxOutputTokens: 500,
+      },
+      {
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+
+    return response.data?.candidates?.[0]?.output || "Resposta vazia.";
   } catch (err) {
-    console.error("❌ Erro OpenAI completo:", err);
-
-    // fallback amigável para plano gratuito
-    if (err?.code === "insufficient_quota") {
-      return "🚨 Limite gratuito da OpenAI atingido — resposta padrão: tente novamente mais tarde.";
-    }
-
+    console.error("❌ Erro Google IA:", err.response?.data || err.message);
     return "Erro ao gerar resposta clínica.";
   }
 }
@@ -172,7 +166,7 @@ async function sendMessage(to, text) {
       messaging_product: "whatsapp",
       to,
       type: "text",
-      text: { body: truncate(text) }
+      text: { body: truncate(text) },
     });
   } catch (err) {
     console.error("❌ Erro WhatsApp:", err.response?.data || err.message);
@@ -188,7 +182,9 @@ app.post("/send", async (req, res) => {
     const { number, message } = req.body;
 
     if (!number || !message?.trim()) {
-      return res.status(400).json({ error: "Número e mensagem são obrigatórios" });
+      return res
+        .status(400)
+        .json({ error: "Número e mensagem são obrigatórios" });
     }
 
     const type = classifyMessage(message);
@@ -198,7 +194,9 @@ app.post("/send", async (req, res) => {
     }
 
     if (type === "DOSE") {
-      return res.json({ reply: "Não posso informar doses. Posso discutir classes terapêuticas." });
+      return res.json({
+        reply: "Não posso informar doses. Posso discutir classes terapêuticas.",
+      });
     }
 
     const aiReply = truncate(await generateAIReply(message));
@@ -208,7 +206,10 @@ app.post("/send", async (req, res) => {
     res.json({ ok: true, reply: aiReply });
   } catch (err) {
     console.error("❌ Erro /send:", err.response?.data || err.message);
-    res.status(500).json({ error: "Falha ao enviar mensagem", details: err.response?.data || err.message });
+    res.status(500).json({
+      error: "Falha ao enviar mensagem",
+      details: err.response?.data || err.message,
+    });
   }
 });
 
@@ -231,7 +232,10 @@ app.post("/webhook", async (req, res) => {
     const type = classifyMessage(text);
 
     if (type !== "MEDICO") {
-      await sendMessage(from, "Canal exclusivo para discussão clínica profissional.");
+      await sendMessage(
+        from,
+        "Canal exclusivo para discussão clínica profissional."
+      );
       return res.sendStatus(200);
     }
 
