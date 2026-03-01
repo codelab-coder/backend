@@ -25,14 +25,12 @@ const PORT = process.env.PORT || 3000;
 /* =========================
    CONFIGURAÇÕES
 ========================= */
-const {
-  VERIFY_TOKEN,
-  WHATSAPP_TOKEN,
-  PHONE_NUMBER_ID,
-} = process.env;
+const { VERIFY_TOKEN, WHATSAPP_TOKEN, PHONE_NUMBER_ID } = process.env;
+const GOOGLE_GEMINI_KEY = process.env.GOOGLE_GEMINI_KEY;
 
-// Sua chave Gemini (pode usar process.env também)
-const GOOGLE_GEMINI_KEY = process.env.GOOGLE_GEMINI_KEY || "SUA_CHAVE_GEMINI_AQUI";
+if (!GOOGLE_GEMINI_KEY) {
+  console.warn("⚠️ GOOGLE_GEMINI_KEY não definido. Modo demonstração ativo.");
+}
 
 /* =========================
    VALIDAÇÃO DE ENV
@@ -99,8 +97,7 @@ function classifyMessage(text = "") {
   const t = text.toLowerCase();
 
   if (/mg|ml|dose|posologia|quantos/i.test(t)) return "DOSE";
-  if (/estou sentindo|tenho dor|meu filho|paciente/i.test(t))
-    return "PACIENTE";
+  if (/estou sentindo|tenho dor|meu filho|paciente/i.test(t)) return "PACIENTE";
 
   return "MEDICO";
 }
@@ -130,29 +127,27 @@ Formato:
 `;
 
 /* =========================
-   FUNÇÃO AI - GOOGLE GEMINI
+   FUNÇÃO AI - GOOGLE GEMINI (chat-bison-001)
 ========================= */
 async function generateAIReply(userMessage) {
-  if (!GOOGLE_GEMINI_KEY)
-    return "Modo demonstração ativo (Google Gemini desabilitado).";
+  if (!GOOGLE_GEMINI_KEY) return "Modo demonstração ativo (Gemini desabilitado).";
 
   try {
-    const url = `https://generativelanguage.googleapis.com/v1beta2/models/text-bison-001:generate?key=${GOOGLE_GEMINI_KEY}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta2/models/chat-bison-001:generate?key=${GOOGLE_GEMINI_KEY}`;
 
     const response = await axios.post(
       url,
       {
         prompt: SYSTEM_PROMPT + "\n\n" + userMessage,
+        temperature: 0.3,
         maxOutputTokens: 500,
       },
-      {
-        headers: { "Content-Type": "application/json" },
-      }
+      { headers: { "Content-Type": "application/json" } }
     );
 
-    return response.data?.candidates?.[0]?.output || "Resposta vazia.";
+    return response.data?.candidates?.[0]?.content || "Resposta vazia.";
   } catch (err) {
-    console.error("❌ Erro Google IA:", err.response?.data || err.message);
+    console.error("❌ Erro Google Gemini:", err.response?.data || err.message);
     return "Erro ao gerar resposta clínica.";
   }
 }
@@ -182,9 +177,7 @@ app.post("/send", async (req, res) => {
     const { number, message } = req.body;
 
     if (!number || !message?.trim()) {
-      return res
-        .status(400)
-        .json({ error: "Número e mensagem são obrigatórios" });
+      return res.status(400).json({ error: "Número e mensagem são obrigatórios" });
     }
 
     const type = classifyMessage(message);
@@ -200,16 +193,12 @@ app.post("/send", async (req, res) => {
     }
 
     const aiReply = truncate(await generateAIReply(message));
-
     await sendMessage(number, aiReply);
 
     res.json({ ok: true, reply: aiReply });
   } catch (err) {
     console.error("❌ Erro /send:", err.response?.data || err.message);
-    res.status(500).json({
-      error: "Falha ao enviar mensagem",
-      details: err.response?.data || err.message,
-    });
+    res.status(500).json({ error: "Falha ao enviar mensagem", details: err.response?.data || err.message });
   }
 });
 
@@ -232,10 +221,7 @@ app.post("/webhook", async (req, res) => {
     const type = classifyMessage(text);
 
     if (type !== "MEDICO") {
-      await sendMessage(
-        from,
-        "Canal exclusivo para discussão clínica profissional."
-      );
+      await sendMessage(from, "Canal exclusivo para discussão clínica profissional.");
       return res.sendStatus(200);
     }
 
