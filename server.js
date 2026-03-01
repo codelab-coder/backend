@@ -9,23 +9,9 @@ dotenv.config();
    APP SETUP
 ========================= */
 const app = express();
+app.use(cors({ origin: "*" })); // libera Netlify
 app.use(express.json({ limit: "10kb" }));
 
-/* =========================
-   CORS (NETLIFY → BACKEND)
-========================= */
-app.use(cors({
-  origin: "https://botpromed.netlify.app",
-  methods: ["GET", "POST", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"]
-}));
-
-// Preflight obrigatório
-app.options("*", cors());
-
-/* =========================
-   ENV
-========================= */
 const PORT = process.env.PORT || 3000;
 const {
   VERIFY_TOKEN,
@@ -34,6 +20,9 @@ const {
   OPENAI_API_KEY
 } = process.env;
 
+/* =========================
+   VALIDACAO DE ENV
+========================= */
 ["VERIFY_TOKEN", "WHATSAPP_TOKEN", "PHONE_NUMBER_ID"].forEach((k) => {
   if (!process.env[k]) {
     console.error(`Variável ausente: ${k}`);
@@ -57,11 +46,11 @@ const whatsappAPI = axios.create({
    HEALTH CHECK
 ========================= */
 app.get("/", (_, res) => {
-  res.json({ status: "online", service: "MedHelper Backend" });
+  res.json({ status: "online", service: "MedHelper" });
 });
 
 /* =========================
-   WEBHOOK VERIFY
+   WEBHOOK VERIFY (META)
 ========================= */
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
@@ -75,7 +64,7 @@ app.get("/webhook", (req, res) => {
 });
 
 /* =========================
-   GUARDAS CLÍNICAS
+   GUARDAS CLINICAS
 ========================= */
 function classifyMessage(text) {
   const t = text.toLowerCase();
@@ -88,7 +77,7 @@ function classifyMessage(text) {
 }
 
 /* =========================
-   PROMPT MÉDICO
+   PROMPT MEDICO
 ========================= */
 const SYSTEM_PROMPT = `
 Você é um assistente de apoio à decisão clínica para profissionais de saúde.
@@ -133,8 +122,7 @@ async function generateAIReply(userMessage) {
       headers: {
         Authorization: `Bearer ${OPENAI_API_KEY}`,
         "Content-Type": "application/json"
-      },
-      timeout: 10000
+      }
     }
   );
 
@@ -161,14 +149,33 @@ app.post("/send", async (req, res) => {
     const { number, message } = req.body;
 
     if (!number || !message) {
-      return res.status(400).json({ error: "Número e mensagem obrigatórios" });
+      return res.status(400).json({
+        error: "Número e mensagem são obrigatórios"
+      });
     }
 
-    await sendMessage(number, message);
-    res.json({ status: "Mensagem enviada" });
+    const type = classifyMessage(message);
+
+    if (type === "PACIENTE") {
+      return res.json({
+        reply: "Este canal é exclusivo para profissionais de saúde."
+      });
+    }
+
+    if (type === "DOSE") {
+      return res.json({
+        reply:
+          "Não posso informar doses ou posologia. Posso discutir classes terapêuticas."
+      });
+    }
+
+    const aiReply = await generateAIReply(message);
+    await sendMessage(number, aiReply);
+
+    res.json({ ok: true, reply: aiReply });
   } catch (err) {
-    console.error("Erro /send:", err.message);
-    res.status(500).json({ error: "Falha ao enviar mensagem" });
+    console.error(err);
+    res.status(500).json({ error: "Erro interno" });
   }
 });
 
@@ -183,22 +190,12 @@ app.post("/webhook", async (req, res) => {
     const from = message.from;
     const text = message.text.body;
 
-    console.log(`Mensagem de ${from}: ${text}`);
-
     const type = classifyMessage(text);
 
-    if (type === "PACIENTE") {
+    if (type !== "MEDICO") {
       await sendMessage(
         from,
-        "Este canal é exclusivo para profissionais de saúde."
-      );
-      return res.sendStatus(200);
-    }
-
-    if (type === "DOSE") {
-      await sendMessage(
-        from,
-        "Não posso informar doses ou posologia. Posso discutir classes terapêuticas."
+        "Canal exclusivo para discussão clínica profissional."
       );
       return res.sendStatus(200);
     }
@@ -214,8 +211,8 @@ app.post("/webhook", async (req, res) => {
 });
 
 /* =========================
-   START SERVER
+   START
 ========================= */
-app.listen(PORT, () => {
-  console.log(`🚀 MedHelper rodando na porta ${PORT}`);
-});
+app.listen(PORT, () =>
+  console.log(`🚀 MedHelper rodando na porta ${PORT}`)
+);
