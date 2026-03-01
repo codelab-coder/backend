@@ -133,20 +133,32 @@ const openai = new OpenAI({
 });
 
 /* =========================
-   FUNÇÃO AI
+   FUNÇÃO AI - VERSÃO GRÁTIS
 ========================= */
 async function generateAIReply(userMessage) {
   if (!OPENAI_API_KEY) return "Modo demonstração ativo (OpenAI desabilitado).";
 
   try {
-    const response = await openai.responses.create({
-      model: OPENAI_MODEL || "gpt-5-mini",
-      input: SYSTEM_PROMPT + "\n\n" + userMessage
+    // força uso do GPT-3.5 turbo para plano gratuito
+    const response = await openai.chat.completions.create({
+      model: OPENAI_MODEL || "gpt-3.5-turbo",
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: userMessage }
+      ],
+      temperature: 0.3,
+      max_tokens: 500
     });
 
-    return response.output_text || "Resposta vazia.";
+    return response.choices?.[0]?.message?.content || "Resposta vazia.";
   } catch (err) {
-    console.error("❌ Erro OpenAI:", err);
+    console.error("❌ Erro OpenAI completo:", err);
+
+    // fallback amigável para plano gratuito
+    if (err?.code === "insufficient_quota") {
+      return "🚨 Limite gratuito da OpenAI atingido — resposta padrão: tente novamente mais tarde.";
+    }
+
     return "Erro ao gerar resposta clínica.";
   }
 }
