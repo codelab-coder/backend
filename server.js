@@ -1,4 +1,5 @@
 import axios from "axios";
+import cors from "cors";
 import dotenv from "dotenv";
 import express from "express";
 
@@ -6,11 +7,19 @@ dotenv.config();
 
 const app = express();
 app.use(express.json());
+app.use(cors());
 
-const PORT = process.env.PORT;
-const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
-const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
-const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
+const PORT = process.env.PORT || 3000;
+VERIFY_TOKEN=EAAT1N2TvXJ8BQ3z5F5fTkRn0GwWUtK1Tx2YmoRAefcFAlPZCQmepBVV5Pr3o0Ahjm67jbZA6iVqQFTbLWg8ZA5x3DaRl4boY5NSU7TWNCMGuLjlZAubGffaZB4HHllmZAOKJolIvzYUP7GMOsJHYULZCS6uiPGcf21FjQmpkxSup21tItMlj1o9qhgdGgDRP9CZBBDxGH2FIanjklWxZAt99iCEp6azOgXPkhHVkJTJmvptOZBZAemi8f8a1FRvfwnZAhb85RPkRxQzZAuPJOlC0G5Mkp8qMM
+WHATSAPP_TOKEN=1895972641042576
+PHONE_NUMBER_ID=1015197901676770
+
+/* =========================
+   Rota raiz (status)
+========================= */
+app.get("/", (req, res) => {
+  res.send("MedHelper Backend Online");
+});
 
 /* =========================
    Verificação do Webhook
@@ -56,6 +65,32 @@ app.post("/webhook", async (req, res) => {
   } catch (error) {
     console.error("Erro:", error.response?.data || error.message);
     res.sendStatus(500);
+  }
+});
+
+/* =========================
+   Enviar mensagem manual
+========================= */
+app.post("/send", async (req, res) => {
+  try {
+    const { number, message } = req.body;
+
+    if (!number || !message) {
+      return res.status(400).json({
+        status: "Número e mensagem são obrigatórios."
+      });
+    }
+
+    await sendMessage(number, message);
+
+    res.json({
+      status: "Mensagem enviada com sucesso!"
+    });
+  } catch (error) {
+    console.error("Erro ao enviar:", error.response?.data || error.message);
+    res.status(500).json({
+      status: "Erro ao enviar mensagem."
+    });
   }
 });
 
