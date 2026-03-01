@@ -1,4 +1,5 @@
 import axios from "axios";
+import cors from "cors";
 import dotenv from "dotenv";
 import express from "express";
 
@@ -10,6 +11,21 @@ dotenv.config();
 const app = express();
 app.use(express.json({ limit: "10kb" }));
 
+/* =========================
+   CORS (NETLIFY → BACKEND)
+========================= */
+app.use(cors({
+  origin: "https://botpromed.netlify.app",
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"]
+}));
+
+// Preflight obrigatório
+app.options("*", cors());
+
+/* =========================
+   ENV
+========================= */
 const PORT = process.env.PORT || 3000;
 const {
   VERIFY_TOKEN,
@@ -18,9 +34,6 @@ const {
   OPENAI_API_KEY
 } = process.env;
 
-/* =========================
-   VALIDACAO DE ENV
-========================= */
 ["VERIFY_TOKEN", "WHATSAPP_TOKEN", "PHONE_NUMBER_ID"].forEach((k) => {
   if (!process.env[k]) {
     console.error(`Variável ausente: ${k}`);
@@ -44,7 +57,7 @@ const whatsappAPI = axios.create({
    HEALTH CHECK
 ========================= */
 app.get("/", (_, res) => {
-  res.json({ status: "online", service: "MedHelper" });
+  res.json({ status: "online", service: "MedHelper Backend" });
 });
 
 /* =========================
@@ -62,7 +75,7 @@ app.get("/webhook", (req, res) => {
 });
 
 /* =========================
-   GUARDAS CLINICAS
+   GUARDAS CLÍNICAS
 ========================= */
 function classifyMessage(text) {
   const t = text.toLowerCase();
@@ -75,7 +88,7 @@ function classifyMessage(text) {
 }
 
 /* =========================
-   PROMPT MEDICO
+   PROMPT MÉDICO
 ========================= */
 const SYSTEM_PROMPT = `
 Você é um assistente de apoio à decisão clínica para profissionais de saúde.
@@ -129,7 +142,7 @@ async function generateAIReply(userMessage) {
 }
 
 /* =========================
-   SEND MESSAGE
+   SEND MESSAGE (WHATSAPP)
 ========================= */
 async function sendMessage(to, text) {
   await whatsappAPI.post("/messages", {
@@ -141,7 +154,26 @@ async function sendMessage(to, text) {
 }
 
 /* =========================
-   WEBHOOK RECEIVE
+   ROTA PARA FRONTEND
+========================= */
+app.post("/send", async (req, res) => {
+  try {
+    const { number, message } = req.body;
+
+    if (!number || !message) {
+      return res.status(400).json({ error: "Número e mensagem obrigatórios" });
+    }
+
+    await sendMessage(number, message);
+    res.json({ status: "Mensagem enviada" });
+  } catch (err) {
+    console.error("Erro /send:", err.message);
+    res.status(500).json({ error: "Falha ao enviar mensagem" });
+  }
+});
+
+/* =========================
+   WEBHOOK RECEIVE (WHATSAPP)
 ========================= */
 app.post("/webhook", async (req, res) => {
   try {
@@ -166,7 +198,7 @@ app.post("/webhook", async (req, res) => {
     if (type === "DOSE") {
       await sendMessage(
         from,
-        "Não posso informar doses ou posologia. Posso discutir classes terapêuticas e riscos."
+        "Não posso informar doses ou posologia. Posso discutir classes terapêuticas."
       );
       return res.sendStatus(200);
     }
@@ -182,8 +214,8 @@ app.post("/webhook", async (req, res) => {
 });
 
 /* =========================
-   START
+   START SERVER
 ========================= */
-app.listen(PORT, () =>
-  console.log(`🚀 MedHelper rodando na porta ${PORT}`)
-);
+app.listen(PORT, () => {
+  console.log(`🚀 MedHelper rodando na porta ${PORT}`);
+});
