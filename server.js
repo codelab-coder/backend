@@ -25,8 +25,8 @@ const PORT = process.env.PORT || 3000;
 /* =========================
    CONFIGURAÇÕES
 ========================= */
-const { VERIFY_TOKEN, WHATSAPP_TOKEN, PHONE_NUMBER_ID } = process.env;
-const GOOGLE_GEMINI_KEY = process.env.GOOGLE_GEMINI_KEY;
+const { VERIFY_TOKEN, WHATSAPP_TOKEN, PHONE_NUMBER_ID, GOOGLE_GEMINI_KEY } =
+  process.env;
 
 if (!GOOGLE_GEMINI_KEY) {
   console.warn("⚠️ GOOGLE_GEMINI_KEY não definido. Modo demonstração ativo.");
@@ -79,31 +79,59 @@ async function sendMessage(to, text) {
   }
 }
 
+/* =========================
+   PROMPT MEDICO
+========================= */
+const SYSTEM_PROMPT = `
+Você é um assistente de apoio à decisão clínica para profissionais de saúde.
+
+Regras obrigatórias:
+- NÃO diagnostica
+- NÃO prescreve
+- NÃO informa doses
+- NÃO substitui avaliação médica
+- Trabalha com hipóteses clínicas
+- Usa linguagem técnica
+- Destaca sinais de alarme
+- Sugere apenas classes terapêuticas
+
+Formato:
+1. Síndromes compatíveis
+2. Evolução clínica esperada
+3. Sinais de alerta
+4. Classes terapêuticas
+5. Orientações
+`;
+
+/* =========================
+   FUNÇÃO AI - GOOGLE GEMINI
+========================= */
 async function generateAIReply(userMessage) {
   if (!GOOGLE_GEMINI_KEY) return "Modo demonstração ativo (Gemini desabilitado).";
 
   try {
-    const url = `https://generativelanguage.googleapis.com/v1beta2/models/text-bison-001:generateMessage?key=${GOOGLE_GEMINI_KEY}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta2/models/text-bison-001:generate?key=${GOOGLE_GEMINI_KEY}`;
 
     const response = await axios.post(
       url,
       {
-        messages: [
-          { author: "system", content: [{ type: "text", text: SYSTEM_PROMPT }] },
-          { author: "user", content: [{ type: "text", text: userMessage }] }
-        ],
+        input: {
+          text: SYSTEM_PROMPT + "\n\n" + userMessage,
+        },
         temperature: 0.3,
-        maxOutputTokens: 500
+        candidate_count: 1,
+        top_p: 0.95,
       },
       { headers: { "Content-Type": "application/json" } }
     );
 
-    return response.data?.candidates?.[0]?.content?.[0]?.text || "Resposta vazia.";
+    return response.data?.candidates?.[0]?.output?.content || "Resposta vazia.";
   } catch (err) {
     console.error("❌ Erro Google Gemini:", err.response?.data || err.message);
     return "Erro ao gerar resposta clínica.";
   }
 }
+
 /* =========================
    HEALTH CHECK
 ========================= */
@@ -143,30 +171,6 @@ function classifyMessage(text = "") {
 }
 
 /* =========================
-   PROMPT MEDICO
-========================= */
-const SYSTEM_PROMPT = `
-Você é um assistente de apoio à decisão clínica para profissionais de saúde.
-
-Regras obrigatórias:
-- NÃO diagnostica
-- NÃO prescreve
-- NÃO informa doses
-- NÃO substitui avaliação médica
-- Trabalha com hipóteses clínicas
-- Usa linguagem técnica
-- Destaca sinais de alarme
-- Sugere apenas classes terapêuticas
-
-Formato:
-1. Síndromes compatíveis
-2. Evolução clínica esperada
-3. Sinais de alerta
-4. Classes terapêuticas
-5. Orientações
-`;
-
-/* =========================
    ROTA PARA FRONTEND
 ========================= */
 app.post("/send", async (req, res) => {
@@ -174,7 +178,9 @@ app.post("/send", async (req, res) => {
     const { number, message } = req.body;
 
     if (!number || !message?.trim()) {
-      return res.status(400).json({ error: "Número e mensagem são obrigatórios" });
+      return res
+        .status(400)
+        .json({ error: "Número e mensagem são obrigatórios" });
     }
 
     const type = classifyMessage(message);
@@ -195,7 +201,10 @@ app.post("/send", async (req, res) => {
     res.json({ ok: true, reply: aiReply });
   } catch (err) {
     console.error("❌ Erro /send:", err.response?.data || err.message);
-    res.status(500).json({ error: "Falha ao enviar mensagem", details: err.response?.data || err.message });
+    res.status(500).json({
+      error: "Falha ao enviar mensagem",
+      details: err.response?.data || err.message,
+    });
   }
 });
 
@@ -218,7 +227,10 @@ app.post("/webhook", async (req, res) => {
     const type = classifyMessage(text);
 
     if (type !== "MEDICO") {
-      await sendMessage(from, "Canal exclusivo para discussão clínica profissional.");
+      await sendMessage(
+        from,
+        "Canal exclusivo para discussão clínica profissional."
+      );
       return res.sendStatus(200);
     }
 
