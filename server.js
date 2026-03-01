@@ -127,25 +127,29 @@ Formato:
 `;
 
 /* =========================
-   FUNÇÃO AI - GOOGLE GEMINI (chat-bison-001)
+   FUNÇÃO AI - GOOGLE GEMINI (text-bison-001)
 ========================= */
 async function generateAIReply(userMessage) {
   if (!GOOGLE_GEMINI_KEY) return "Modo demonstração ativo (Gemini desabilitado).";
 
   try {
-    const url = `https://generativelanguage.googleapis.com/v1beta2/models/chat-bison-001:generate?key=${GOOGLE_GEMINI_KEY}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta2/models/text-bison-001:generate?key=${GOOGLE_GEMINI_KEY}`;
 
     const response = await axios.post(
       url,
       {
-        prompt: SYSTEM_PROMPT + "\n\n" + userMessage,
+        // Aqui usamos o formato correto
+        input: {
+          text: SYSTEM_PROMPT + "\n\n" + userMessage
+        },
         temperature: 0.3,
-        maxOutputTokens: 500,
+        maxOutputTokens: 500
       },
       { headers: { "Content-Type": "application/json" } }
     );
 
-    return response.data?.candidates?.[0]?.content || "Resposta vazia.";
+    // O retorno vem dentro de candidates[0].output
+    return response.data?.candidates?.[0]?.output || "Resposta vazia.";
   } catch (err) {
     console.error("❌ Erro Google Gemini:", err.response?.data || err.message);
     return "Erro ao gerar resposta clínica.";
